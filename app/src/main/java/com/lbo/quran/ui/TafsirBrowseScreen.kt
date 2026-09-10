@@ -115,6 +115,8 @@ fun TafsirBrowseScreen(
                 val index = results.indexOfFirst { it.id == targetId }
                 if (index >= 0) {
                     listState.scrollToItem(index)
+                    // اصلاح دقیق موقعیت برای پاراگراف‌های بلند تفسیر (همان دلیل صفحه‌ی اصلی)
+                    listState.scrollToItem(index)
                     viewModel.consumeTafsirBrowseScrollTarget()
                 }
             }
