@@ -4,18 +4,23 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+/** بازه‌ی مجاز برای سرعت پخش صوت (۰٫۷ تا ۲ برابر) */
+val PLAYBACK_SPEED_RANGE = 0.7f..2f
+
 data class PlaybackUiState(
     val queue: List<String> = emptyList(),
     val currentIndex: Int = -1,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
-    val scopeLabel: String = ""
+    val scopeLabel: String = "",
+    val playbackSpeed: Float = 1f
 ) {
     val currentAId: String? get() = queue.getOrNull(currentIndex)
     val isActive: Boolean get() = queue.isNotEmpty()
@@ -59,9 +64,12 @@ class AudioPlaybackController(
     }
 
     fun playQueue(aIds: List<String>, startIndex: Int, scopeLabel: String) {
+        // سرعت پخش انتخاب‌شده‌ی قبلی کاربر باید بین صف‌های پخش مختلف (مثلاً هنگام تغییر
+        // تعداد تکرار یا رفتن به آیه بعدی/سوره بعدی) حفظ شود
+        val speed = _state.value.playbackSpeed
         val available = aIds.filter { audioRepository.hasAudio(it) }
         if (available.isEmpty()) {
-            _state.value = PlaybackUiState(scopeLabel = scopeLabel)
+            _state.value = PlaybackUiState(scopeLabel = scopeLabel, playbackSpeed = speed)
             return
         }
         val clampedStart = startIndex.coerceIn(0, available.lastIndex)
@@ -70,13 +78,15 @@ class AudioPlaybackController(
             MediaItem.fromUri(Uri.fromFile(audioRepository.audioFileFor(aId)))
         }
         player.setMediaItems(items, clampedStart, 0L)
+        player.playbackParameters = PlaybackParameters(speed)
         player.prepare()
         player.playWhenReady = true
         _state.value = PlaybackUiState(
             queue = available,
             currentIndex = clampedStart,
             isPlaying = true,
-            scopeLabel = scopeLabel
+            scopeLabel = scopeLabel,
+            playbackSpeed = speed
         )
     }
 
@@ -95,9 +105,16 @@ class AudioPlaybackController(
         if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem()
     }
 
+    /** تغییر سرعت پخش صوت؛ مقدار به بازه‌ی مجاز (۰٫۷ تا ۲ برابر) محدود می‌شود */
+    fun setPlaybackSpeed(speed: Float) {
+        val clamped = speed.coerceIn(PLAYBACK_SPEED_RANGE.start, PLAYBACK_SPEED_RANGE.endInclusive)
+        player.playbackParameters = PlaybackParameters(clamped)
+        _state.value = _state.value.copy(playbackSpeed = clamped)
+    }
+
     fun stop() {
         player.stop()
         player.clearMediaItems()
-        _state.value = PlaybackUiState()
+        _state.value = PlaybackUiState(playbackSpeed = _state.value.playbackSpeed)
     }
 }
