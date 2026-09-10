@@ -1,7 +1,14 @@
 package com.lbo.quran.ui
 
 import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
@@ -21,7 +28,6 @@ import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -52,6 +58,8 @@ import com.lbo.quran.ui.theme.quranFontByKey
 import com.lbo.quran.ui.theme.resolveFontStyle
 import com.lbo.quran.ui.theme.resolveFontWeight
 import com.lbo.quran.ui.theme.translationFontByKey
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -140,6 +148,18 @@ fun HomeScreen(
     var pageInput by remember { mutableStateOf("") }
     var pageError by remember { mutableStateOf<String?>(null) }
 
+    // پنجره‌ی پخش پس از چند ثانیه بی‌تحرکی، خودش را محو می‌کند تا جای بیشتری برای متن آیه باز
+    // شود؛ با لمس هر نقطه‌ای از صفحه دوباره ظاهر می‌شود و تایمر از نو شروع می‌شود.
+    var playerPanelVisible by remember { mutableStateOf(true) }
+    var hidePlayerJob by remember { mutableStateOf<Job?>(null) }
+    fun scheduleAutoHidePlayer() {
+        hidePlayerJob?.cancel()
+        hidePlayerJob = scope.launch {
+            delay(3500)
+            playerPanelVisible = false
+        }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.loadFullQuran()
     }
@@ -186,14 +206,25 @@ fun HomeScreen(
         }
     }
 
-    // هم‌زمان با پخش صوت، به‌صورت خودکار روی آیه‌ی در حال پخش اسکرول کن
+    // هم‌زمان با پخش صوت، به‌صورت خودکار روی آیه‌ی در حال پخش اسکرول کن؛ آیه‌ی در حال پخش باید
+    // همیشه بالاترین آیه‌ی قابل مشاهده در صفحه باشد. از اسکرول متحرک (animateScrollToItem)
+    // استفاده نمی‌شود چون برای آیات بلند، تخمین ارتفاع حین انیمیشن نادقیق است و ممکن است وسط
+    // آیه متوقف شود؛ دو فراخوانیِ فوریِ پیاپی، بعد از اندازه‌گیری واقعی آیتم، همیشه دقیقاً
+    // ابتدای آیه‌ی هدف را در بالای صفحه قرار می‌دهد.
     LaunchedEffect(playback.currentAId) {
         val aId = playback.currentAId ?: return@LaunchedEffect
         viewModel.itemIndexForAyah(aId)?.let { index ->
-            listState.animateScrollToItem(index)
-            // اصلاح دقیق موقعیت: در آیات بلند، تخمین ارتفاع در حین انیمیشن ممکن است نادقیق باشد
-            // و اسکرول وسط آیه متوقف شود؛ این اسکرول فوری، ابتدای دقیق آیتم را تضمین می‌کند.
-            listState.scrollToItem(index)
+            listState.scrollToItem(index, 0)
+            listState.scrollToItem(index, 0)
+        }
+    }
+
+    // با هر تغییر در وضعیت پخش (شروع، توقف/ازسرگیری، رفتن به آیه‌ی بعدی)، پنجره‌ی پخش دوباره
+    // نمایان می‌شود و تایمر محوشدنِ خودکار از نو شروع می‌شود
+    LaunchedEffect(playback.isActive, playback.isPlaying, playback.currentAId) {
+        if (playback.isActive) {
+            playerPanelVisible = true
+            scheduleAutoHidePlayer()
         }
     }
 
@@ -219,6 +250,17 @@ fun HomeScreen(
         }
     }
 
+    // تشخیص لمس صفحه (بدون مصرف/دخالت در رویداد) تا با هر لمسی، پنجره‌ی پخش دوباره بالا بیاید
+    Box(
+        modifier = Modifier.fillMaxSize().pointerInput(playback.isActive) {
+            if (!playback.isActive) return@pointerInput
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                playerPanelVisible = true
+                scheduleAutoHidePlayer()
+            }
+        }
+    ) {
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -324,7 +366,7 @@ fun HomeScreen(
                             )
                             Box {
                                 IconButton(onClick = { showPlaybackMenu = true }) {
-                                    Icon(Icons.Default.PlaylistPlay, contentDescription = "پخش صوت")
+                                    Icon(Icons.Default.PlayArrow, contentDescription = "پخش صوت")
                                 }
                                 DropdownMenu(expanded = showPlaybackMenu, onDismissRequest = { showPlaybackMenu = false }) {
                                     DropdownMenuItem(
@@ -407,7 +449,11 @@ fun HomeScreen(
             },
             bottomBar = {
                 Column {
-                    if (playback.isActive) {
+                    AnimatedVisibility(
+                        visible = playback.isActive && playerPanelVisible,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
                         Surface(color = MaterialTheme.colorScheme.primaryContainer) {
                             Column {
                                 Row(
@@ -452,6 +498,24 @@ fun HomeScreen(
                                     IconButton(onClick = { viewModel.audioController.stop() }) {
                                         Icon(Icons.Default.Close, contentDescription = "بستن پخش")
                                     }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 0.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("سرعت", style = MaterialTheme.typography.labelSmall)
+                                    Slider(
+                                        value = playback.playbackSpeed,
+                                        onValueChange = { viewModel.audioController.setPlaybackSpeed(it) },
+                                        valueRange = 0.7f..2f,
+                                        steps = 12,
+                                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                                    )
+                                    Text(
+                                        "×" + String.format("%.2f", playback.playbackSpeed),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
                                 }
                             }
                         }
@@ -733,6 +797,7 @@ fun HomeScreen(
             }
         }
     }
+    } // پایان Box تشخیص لمس
 
     if (showPageDialog) {
         AlertDialog(
