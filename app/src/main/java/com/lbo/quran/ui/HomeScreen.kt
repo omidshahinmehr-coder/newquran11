@@ -166,15 +166,21 @@ fun HomeScreen(
 
     // بازگشت از صفحه تفسیر: اسکرول به همان آیه‌ای که تفسیرش باز شده بود
     // یا (فقط بار اول در طول عمر برنامه) اسکرول به آخرین محل مطالعه ذخیره‌شده
+    //
+    // نکته‌ی مهم: کارت راهنما (showHint) وقتی نمایش داده می‌شود، خودش یک آیتم در ابتدای
+    // LazyColumn است، اما در لیست state.items (که ایندکس‌های viewModel.itemIndexForAyah از
+    // روی آن محاسبه شده) وجود ندارد. پس تا وقتی این کارت روی صفحه است، باید یک واحد به همه‌ی
+    // ایندکس‌های محاسبه‌شده اضافه شود؛ وگرنه اسکرول همیشه یک آیتم زودتر (یعنی آیه‌ی قبلی) بالا می‌آید.
     LaunchedEffect(state.items.size) {
         if (state.items.isNotEmpty()) {
             val returnAyah = viewModel.consumePendingReturnAyah()
             val target = returnAyah ?: viewModel.consumeInitialScrollAyah()
             target?.let { aId ->
                 viewModel.itemIndexForAyah(aId)?.let { index ->
-                    listState.scrollToItem(index)
+                    val hintOffset = if (showHint) 1 else 0
+                    listState.scrollToItem(index + hintOffset)
                     // اصلاح دقیق موقعیت برای آیات بلند (نگاه کنید به توضیح پایین‌تر)
-                    listState.scrollToItem(index)
+                    listState.scrollToItem(index + hintOffset)
                 }
             }
         }
@@ -187,7 +193,9 @@ fun HomeScreen(
             .distinctUntilChanged()
             .debounce(1000)
             .collect { index ->
-                val visibleAyah = state.items.drop(index)
+                val hintOffset = if (showHint) 1 else 0
+                val realIndex = (index - hintOffset).coerceAtLeast(0)
+                val visibleAyah = state.items.drop(realIndex)
                     .firstOrNull { it is ReadingItem.Ayah } as? ReadingItem.Ayah
                 visibleAyah?.let { viewModel.saveLastReadPosition(it.ayah.aId) }
             }
@@ -196,12 +204,13 @@ fun HomeScreen(
     // انتخاب سوره/جزء از منو، یا بازگشت از نتیجه‌ی جستجو/نشانک، حتی وقتی صفحه اصلی از قبل باز است
     LaunchedEffect(scrollTarget) {
         scrollTarget?.let { index ->
-            listState.scrollToItem(index)
+            val hintOffset = if (showHint) 1 else 0
+            listState.scrollToItem(index + hintOffset)
             // اصلاح دقیق موقعیت: LazyColumn برای آیتم‌هایی که هنوز اندازه‌گیری نشده‌اند از یک
             // میانگین تخمینی استفاده می‌کند؛ چون آیات طول خیلی متفاوتی دارند، این تخمین می‌تواند
             // نادقیق باشد. فراخوانی دوم، بعد از اینکه آیتم هدف واقعاً اندازه‌گیری شد، موقعیت را
             // دقیقاً روی ابتدای همان آیتم تنظیم می‌کند.
-            listState.scrollToItem(index)
+            listState.scrollToItem(index + hintOffset)
             viewModel.consumeScrollTarget()
         }
     }
@@ -214,8 +223,9 @@ fun HomeScreen(
     LaunchedEffect(playback.currentAId) {
         val aId = playback.currentAId ?: return@LaunchedEffect
         viewModel.itemIndexForAyah(aId)?.let { index ->
-            listState.scrollToItem(index, 0)
-            listState.scrollToItem(index, 0)
+            val hintOffset = if (showHint) 1 else 0
+            listState.scrollToItem(index + hintOffset, 0)
+            listState.scrollToItem(index + hintOffset, 0)
         }
     }
 
@@ -228,12 +238,15 @@ fun HomeScreen(
         }
     }
 
-    // اطلاعات آیه‌ای که هم‌اکنون بالای صفحه قرار دارد (نام سوره، جزء، حزب، صفحه)؛ با اسکرول به‌روزرسانی می‌شود
+    // اطلاعات آیه‌ای که هم‌اکنون بالای صفحه قرار دارد (نام سوره، جزء، حزب، صفحه)؛ با اسکرول به‌روزرسانی می‌شود.
+    // همان اصلاح مربوط به کارت راهنما اینجا هم لازم است: وقتی آن کارت نمایش داده می‌شود، ایندکس
+    // واقعی اولین آیتم دیده‌شده در LazyColumn یک واحد جلوتر از ایندکس متناظرش در state.items است.
     val currentAyahItem by remember {
         derivedStateOf {
             val items = state.items
             if (items.isEmpty()) return@derivedStateOf null
-            val start = listState.firstVisibleItemIndex.coerceIn(0, items.size - 1)
+            val hintOffset = if (showHint) 1 else 0
+            val start = (listState.firstVisibleItemIndex - hintOffset).coerceIn(0, items.size - 1)
             var idx = start
             while (idx < items.size) {
                 val current = items[idx]
