@@ -153,6 +153,8 @@ fun HomeScreen(
             target?.let { aId ->
                 viewModel.itemIndexForAyah(aId)?.let { index ->
                     listState.scrollToItem(index)
+                    // اصلاح دقیق موقعیت برای آیات بلند (نگاه کنید به توضیح پایین‌تر)
+                    listState.scrollToItem(index)
                 }
             }
         }
@@ -171,9 +173,14 @@ fun HomeScreen(
             }
     }
 
-    // انتخاب سوره/جزء از منو، حتی وقتی صفحه اصلی از قبل باز است
+    // انتخاب سوره/جزء از منو، یا بازگشت از نتیجه‌ی جستجو/نشانک، حتی وقتی صفحه اصلی از قبل باز است
     LaunchedEffect(scrollTarget) {
         scrollTarget?.let { index ->
+            listState.scrollToItem(index)
+            // اصلاح دقیق موقعیت: LazyColumn برای آیتم‌هایی که هنوز اندازه‌گیری نشده‌اند از یک
+            // میانگین تخمینی استفاده می‌کند؛ چون آیات طول خیلی متفاوتی دارند، این تخمین می‌تواند
+            // نادقیق باشد. فراخوانی دوم، بعد از اینکه آیتم هدف واقعاً اندازه‌گیری شد، موقعیت را
+            // دقیقاً روی ابتدای همان آیتم تنظیم می‌کند.
             listState.scrollToItem(index)
             viewModel.consumeScrollTarget()
         }
@@ -184,6 +191,9 @@ fun HomeScreen(
         val aId = playback.currentAId ?: return@LaunchedEffect
         viewModel.itemIndexForAyah(aId)?.let { index ->
             listState.animateScrollToItem(index)
+            // اصلاح دقیق موقعیت: در آیات بلند، تخمین ارتفاع در حین انیمیشن ممکن است نادقیق باشد
+            // و اسکرول وسط آیه متوقف شود؛ این اسکرول فوری، ابتدای دقیق آیتم را تضمین می‌کند.
+            listState.scrollToItem(index)
         }
     }
 
