@@ -161,8 +161,31 @@ class QuranViewModel(
     private val _audioRepeatCount = MutableStateFlow(1)
     val audioRepeatCount: StateFlow<Int> = _audioRepeatCount.asStateFlow()
 
+    /** صفِ پایه (بدون تکرار) و برچسب محدوده‌ی پخشِ در حال اجرا؛ برای این نگه داشته می‌شود که
+     *  اگر کاربر حین پخش تعداد تکرار را عوض کند، بتوانیم از روی همین اطلاعات، پخش را از آیه‌ی
+     *  فعلی با شرایط جدید از نو بسازیم. */
+    private data class PlaybackScope(val baseIds: List<String>, val scopeLabel: String)
+    private var currentPlaybackScope: PlaybackScope? = null
+
     fun setAudioRepeatCount(count: Int) {
-        _audioRepeatCount.value = count.coerceIn(1, 5)
+        val newCount = count.coerceIn(1, 5)
+        if (newCount == _audioRepeatCount.value) return
+        _audioRepeatCount.value = newCount
+        restartActivePlaybackWithCurrentRepeatCount()
+    }
+
+    /** وقتی پخش در حال انجام است و تعداد تکرار عوض می‌شود: پخش متوقف و از ابتدای همان آیه‌ای
+     *  که هم‌اکنون در حال پخش است، با تعداد تکرار جدید، دوباره شروع می‌شود (بقیه‌ی محدوده هم با
+     *  همان شرایط جدید ادامه پیدا می‌کند). */
+    private fun restartActivePlaybackWithCurrentRepeatCount() {
+        val playbackState = audioController.state.value
+        if (!playbackState.isActive) return
+        val currentAId = playbackState.currentAId ?: return
+        val scope = currentPlaybackScope ?: return
+        val idx = scope.baseIds.indexOf(currentAId)
+        if (idx < 0) return
+        val remainingIds = scope.baseIds.subList(idx, scope.baseIds.size)
+        audioController.playQueue(expandForRepeat(remainingIds), 0, scope.scopeLabel)
     }
 
     private fun expandForRepeat(ids: List<String>): List<String> {
@@ -202,6 +225,7 @@ class QuranViewModel(
     }
 
     fun playAyah(aId: String) {
+        currentPlaybackScope = PlaybackScope(listOf(aId), "آیه")
         audioController.playQueue(expandForRepeat(listOf(aId)), 0, "آیه")
     }
 
@@ -211,6 +235,7 @@ class QuranViewModel(
             .map { it.ayah.aId }
         val startIndex = startAtAId?.let { ids.indexOf(it) }?.coerceAtLeast(0) ?: 0
         val n = _audioRepeatCount.value.coerceAtLeast(1)
+        currentPlaybackScope = PlaybackScope(ids, "صفحه $page")
         audioController.playQueue(expandForRepeat(ids), startIndex * n, "صفحه $page")
     }
 
@@ -220,6 +245,7 @@ class QuranViewModel(
             .map { it.ayah.aId }
         val startIndex = startAtAId?.let { ids.indexOf(it) }?.coerceAtLeast(0) ?: 0
         val n = _audioRepeatCount.value.coerceAtLeast(1)
+        currentPlaybackScope = PlaybackScope(ids, "جزء $juz")
         audioController.playQueue(expandForRepeat(ids), startIndex * n, "جزء $juz")
     }
 
@@ -229,6 +255,7 @@ class QuranViewModel(
             .map { it.ayah.aId }
         val startIndex = startAtAId?.let { ids.indexOf(it) }?.coerceAtLeast(0) ?: 0
         val n = _audioRepeatCount.value.coerceAtLeast(1)
+        currentPlaybackScope = PlaybackScope(ids, "حزب $hizb")
         audioController.playQueue(expandForRepeat(ids), startIndex * n, "حزب $hizb")
     }
 
@@ -240,6 +267,7 @@ class QuranViewModel(
         val n = _audioRepeatCount.value.coerceAtLeast(1)
         val surahName = _fullQuran.value.items.filterIsInstance<ReadingItem.Ayah>()
             .firstOrNull { it.ayah.surahNumber == surahNumber }?.surahNameFa ?: "سوره"
+        currentPlaybackScope = PlaybackScope(ids, "سوره $surahName")
         audioController.playQueue(expandForRepeat(ids), startIndex * n, "سوره $surahName")
     }
 
@@ -247,6 +275,7 @@ class QuranViewModel(
         val ids = _fullQuran.value.items.filterIsInstance<ReadingItem.Ayah>().map { it.ayah.aId }
         val startIndex = startAtAId?.let { ids.indexOf(it) }?.coerceAtLeast(0) ?: 0
         val n = _audioRepeatCount.value.coerceAtLeast(1)
+        currentPlaybackScope = PlaybackScope(ids, "کل قرآن")
         audioController.playQueue(expandForRepeat(ids), startIndex * n, "کل قرآن")
     }
 
